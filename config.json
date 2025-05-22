@@ -1,0 +1,20 @@
+{
+  "nome_pasta": "20250423",
+  "num_capturas": 6,
+  "primeira_imagem_com_spray": 201,
+  "inicio": 200,
+  "num_imagens_subtracao": 50,
+  "num_injecoes": 20,
+  "frames_por_injecao": 38,
+  "fps": 6400,
+  "pxcm": 31.8,
+  "corte": 14,
+  "imagens_por_ciclo": {
+    "1": 384,
+    "2": 192,
+    "3": 128,
+    "4": 384,
+    "5": 192,
+    "6": 128
+  }
+}
