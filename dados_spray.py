@@ -165,12 +165,6 @@ class Spray:
                 todos_y.extend(dados_bordas[key])
 
         if not todos_y:
-            if frame_num == 1 and captura_num is not None and injecao_num is not None:
-                try:
-                    penetracao_frame2 = self.penetracoes[captura_num][injecao_num].get(2, 0)
-                    return penetracao_frame2 / 2
-                except KeyError:
-                    return 0.0
             return 0.0
     
         y_bico_injetor = min(todos_y)
@@ -180,14 +174,17 @@ class Spray:
     
     def calcular_angulo_desvio(self, dados_bordas, frame_num=None, injecao_num=None, captura_num=None):
         """Calcula o angulo de cone e desvio do spray usando regressao RANSAC"""
+        if frame_num is not None and frame_num <= 3:
+            return None, None
+        
         if not dados_bordas or 'dx_e' not in dados_bordas or 'dx_d' not in dados_bordas:
-            return self._herdar_valores(frame_num, injecao_num, captura_num, (0.0, 0.0))
+            return self._herdar_valores(frame_num, injecao_num, captura_num, (None, None))
 
         try:
-            x_esquerda = np.array(dados_bordas['dx_e'])
-            y_esquerda = np.array(dados_bordas['dy_e'])
-            x_direita = np.array(dados_bordas['dx_d'])
-            y_direita = np.array(dados_bordas['dy_d'])
+            x_esquerda = np.array(dados_bordas['dx_e'][:-20]) if len(dados_bordas['dx_e']) > 200 else np.array(dados_bordas['dx_e'])
+            y_esquerda = np.array(dados_bordas['dy_e'][:-20]) if len(dados_bordas['dy_e']) > 200 else np.array(dados_bordas['dy_e'])
+            x_direita = np.array(dados_bordas['dx_d'][:-20]) if len(dados_bordas['dx_d']) > 200 else np.array(dados_bordas['dx_d'])
+            y_direita = np.array(dados_bordas['dy_d'][:-20]) if len(dados_bordas['dy_d']) > 200 else np.array(dados_bordas['dy_d'])
             
             if len(x_esquerda) < 8 or len(x_direita) < 8:
                 return self._herdar_valores(frame_num, injecao_num, captura_num, (0.0, 0.0))
@@ -372,33 +369,36 @@ class Spray:
             frames_disponiveis = set()
             for inj in self.penetracoes[captura]:
                 frames_disponiveis.update(self.penetracoes[captura][inj].keys())
+            
             frames_ordenados = sorted(frames_disponiveis)
+            frames_penetracao = frames_ordenados
+            frames_ang_desv = [f for f in frames_ordenados if f >= 4]
 
-            dados_pen, dados_ang, dados_desv = [], [], []
-            for frame in frames_ordenados:
+            dados_pen = []
+            for frame in frames_penetracao:
                 tempo = frame / fps
                 linha_pen = [frame, tempo]
-                linha_ang = [frame, tempo]
-                linha_desv = [frame, tempo]
-
                 for inj in range(1, max(self.penetracoes[captura].keys()) + 1):
-                    # Penetração
                     p = self.penetracoes[captura].get(inj, {}).get(frame, None)
                     linha_pen.append(p if p is not None else "")
-
-                    # Ângulo de cone
-                    a = self.angulos_cone[captura].get(inj, {}).get(frame, None)
-                    linha_ang.append(a if a is not None else "")
-
-                    # Desvio
-                    d = self.desvios[captura].get(inj, {}).get(frame, None)
-                    linha_desv.append(d if d is not None else "")
-
                 dados_pen.append(linha_pen)
+
+            dados_ang = []
+            dados_desv = []
+            for frame in frames_ang_desv:
+                tempo = frame / fps
+                linha_ang = [frame, tempo]
+                linha_desv = [frame, tempo]
+                for inj in range(1, max(self.penetracoes[captura].keys()) + 1):
+                    a = self.angulos_cone[captura].get(inj, {}).get(frame, None)
+                    d = self.desvios[captura].get(inj, {}).get(frame, None)
+                    linha_ang.append(a if a is not None else "")
+                    linha_desv.append(d if d is not None else "")
                 dados_ang.append(linha_ang)
                 dados_desv.append(linha_desv)
 
             colunas = ["Frame", "Tempo (s)"] + [f"Inj{inj}" for inj in range(1, max(self.penetracoes[captura].keys()) + 1)]
+            
             df_pen = pd.DataFrame(dados_pen, columns=colunas)
             df_ang = pd.DataFrame(dados_ang, columns=colunas)
             df_desv = pd.DataFrame(dados_desv, columns=colunas)
@@ -430,7 +430,7 @@ def main():
     frames_por_injecao = config["frames_por_injecao"]
     fps = config["fps"]
 
-    spray = Spray(pxcm=config["pxcm"], corte=config["corteS"])
+    spray = Spray(pxcm=config["pxcm"], corte=config["corte"])
 
     for captura_numero in range(1, num_capturas + 1):
         try:
