@@ -7,13 +7,13 @@ pip install numpy scikit-learn opencv-python pandas tifffile
 # Configurações
 Para realizar o processamento de uma pasta de arquivos eles precisam estar organizados da seguinte forma:
 pasta/  
-├── captura1/  
-│   ├── captura1.tif  
-├── captura2/  
-│   ├── captura2.tif  
-│   ...  
-├── config.json  
-└── dados_spray.py  
+    captura1/  
+        captura1.tif  
+    captura2/  
+        captura2.tif  
+    ...  
+config.json  
+dados_spray.py  
 
 Altere o arquivo config.json para os parâmetros do ensaio em questão.  
 
