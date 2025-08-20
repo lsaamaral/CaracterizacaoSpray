@@ -24,14 +24,12 @@ class Spray:
             inicio = primeira_imagem_com_spray + imagens_por_ciclo * j - num_imagens_subtracao
             fim = primeira_imagem_com_spray + imagens_por_ciclo * j - 1
 
-            #print(f"Processando injecao {j+1}: frames {inicio} a {fim}")
             soma = np.sum(imagens[inicio:fim].astype(np.float32), axis=0)
             sem_spray[:, :, j] = soma / num_imagens_subtracao
 
         return sem_spray.astype(np.uint8)
 
     def subtrair_fundo(self, imagens, sem_spray, inicio, num_injecoes, imagens_por_ciclo, frames_por_injecao, pasta_saida, captura_numero):
-        #print(f"\nSubtraindo fundo para captura {captura_numero}...")
 
         for j in range(num_injecoes):
             frame_inicial = inicio + imagens_por_ciclo * j
@@ -39,7 +37,7 @@ class Spray:
             for i in range(frames_por_injecao):
                 img_com_spray = imagens[frame_inicial + i]  # Selecionar frame atual
                 img_subtraida = cv2.subtract(sem_spray[:, :, j], img_com_spray)  # Subtrair a imagem de fundo
-                img_ajustada = cv2.normalize(img_subtraida, None, 0, 255, cv2.NORM_MINMAX)  # Normalizar contraste para 0-255
+                img_ajustada = cv2.normalize(img_subtraida, None, 0, 300, cv2.NORM_MINMAX)  # Normalizar contraste para 0-255
                 img_filtrada = cv2.medianBlur(img_ajustada, 3)  # Suavizar ruido sem perder a borda (mediana 3x3)
 
                 nome_arquivo = f"captura{captura_numero}_inj{j+1}_frame{i+1}.pgm"
@@ -77,7 +75,7 @@ class Spray:
         kernel = np.ones((3,3), np.uint8) # define a area que vai ser considerada um buraco ou um ponto branco
         img_processed = cv2.morphologyEx(img_thresh, cv2.MORPH_CLOSE, kernel) # preenche buracos dentro do spray
         img_processed = cv2.morphologyEx(img_processed, cv2.MORPH_OPEN, kernel) # remove pontos brancos fora do spray
-        
+    
         # Retorna o maior contorno
         contours, _ = cv2.findContours(img_processed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         
@@ -141,8 +139,10 @@ class Spray:
         # Criar visualizacao
         img_visualizacao = img.copy()
 
-        if not self.imagem_ja_processada(img_path):
-            img_visualizacao = cv2.drawContours(img_visualizacao, [main_contour], -1, 255, 1)
+        # if not self.imagem_ja_processada(img_path):
+        #     img_visualizacao = cv2.drawContours(img_visualizacao, [main_contour], -1, 255, 1)
+
+        img_visualizacao = cv2.drawContours(img_visualizacao, [main_contour], -1, 255, 1)
         
         return dados_bordas, img_visualizacao
 
@@ -157,7 +157,7 @@ class Spray:
         
         return np.any(img == 255)  # True se encontrar pelo menos 1 pixel branco
     
-    def calcular_penetracao(self, dados_bordas, frame_num=None, injecao_num=None, captura_num=None):
+    def calcular_penetracao(self, dados_bordas):
         """ Calcula a penetracao do spray em cm"""
         todos_y = []
         for key in dados_bordas:
@@ -173,113 +173,71 @@ class Spray:
         return y_final_spray - y_bico_injetor
     
     def calcular_angulo_desvio(self, dados_bordas, frame_num=None, injecao_num=None, captura_num=None):
-        """Calcula o angulo de cone e desvio do spray usando regressao RANSAC"""
+        """
+        Calcula o angulo de cone e desvio usando uma altura fixa
+        """
         if frame_num is not None and frame_num <= 3:
             return None, None
         
-        if not dados_bordas or 'dx_e' not in dados_bordas or 'dx_d' not in dados_bordas:
-            return self._herdar_valores(frame_num, injecao_num, captura_num, (None, None))
+        if not dados_bordas or not dados_bordas.get('dy_e') or not dados_bordas.get('dy_d'):
+            return None, None
 
         try:
-            x_esquerda = np.array(dados_bordas['dx_e'][:-20]) if len(dados_bordas['dx_e']) > 200 else np.array(dados_bordas['dx_e'])
-            y_esquerda = np.array(dados_bordas['dy_e'][:-20]) if len(dados_bordas['dy_e']) > 200 else np.array(dados_bordas['dy_e'])
-            x_direita = np.array(dados_bordas['dx_d'][:-20]) if len(dados_bordas['dx_d']) > 200 else np.array(dados_bordas['dx_d'])
-            y_direita = np.array(dados_bordas['dy_d'][:-20]) if len(dados_bordas['dy_d']) > 200 else np.array(dados_bordas['dy_d'])
+            x_esquerda_todos = np.array(dados_bordas['dx_e'])
+            y_esquerda_todos = np.array(dados_bordas['dy_e'])
+            x_direita_todos = np.array(dados_bordas['dx_d'])
+            y_direita_todos = np.array(dados_bordas['dy_d'])
             
-            if len(x_esquerda) < 8 or len(x_direita) < 8:
-                return self._herdar_valores(frame_num, injecao_num, captura_num, (0.0, 0.0))
-            
-            x_esquerda, y_esquerda = self._remover_outliers(x_esquerda, y_esquerda)
-            x_direita, y_direita = self._remover_outliers(x_direita, y_direita)
-            
-            if len(x_esquerda) < 5 or len(x_direita) < 5:
-                return self._herdar_valores(frame_num, injecao_num, captura_num, (0.0, 0.0))
+            if len(y_esquerda_todos) < 10 or len(y_direita_todos) < 10:
+                return None, None
+
+            y_min = min(np.min(y_esquerda_todos), np.min(y_direita_todos))
+
+            altura_fixa_roi_cm = 2.0
+
+            limite_y_roi = y_min + altura_fixa_roi_cm
+
+            mascara_esquerda = y_esquerda_todos <= limite_y_roi
+            mascara_direita = y_direita_todos <= limite_y_roi
+
+            x_esquerda = x_esquerda_todos[mascara_esquerda]
+            y_esquerda = y_esquerda_todos[mascara_esquerda]
+            x_direita = x_direita_todos[mascara_direita]
+            y_direita = y_direita_todos[mascara_direita]
+
+            if len(y_esquerda) < 5 or len(y_direita) < 5:
+                print(f"Altura fixa com poucos pontos no frame {frame_num}. Angulo nao calculado.")
+                return None, None
             
             ransac_e = RANSACRegressor()
-            ransac_e.fit(x_esquerda.reshape(-1, 1), y_esquerda)
-            a_e = ransac_e.estimator_.coef_[0]  # Coeficiente angular da reta esquerda
-            
-            ransac_d = RANSACRegressor()
-            ransac_d.fit(x_direita.reshape(-1, 1), y_direita)
-            a_d = ransac_d.estimator_.coef_[0]  # Coeficiente angular da reta direita
+            ransac_e.fit(y_esquerda.reshape(-1, 1), x_esquerda)
+            m_e = ransac_e.estimator_.coef_[0]
 
-            denominador = 1 + a_d * a_e
-            if abs(denominador) < 1e-6 or np.isnan(a_d) or np.isnan(a_e):
-                return self._herdar_valores(frame_num, injecao_num, captura_num, (0.0, 0.0))
+            ransac_d = RANSACRegressor()
+            ransac_d.fit(y_direita.reshape(-1, 1), x_direita)
+            m_d = ransac_d.estimator_.coef_[0]
+
+            angulo_e_rad = np.arctan(m_e)
+            angulo_d_rad = np.arctan(m_d)
             
-            angulo_cone_rad = np.arctan(abs((a_d - a_e) / (1 + a_d * a_e)))
+            angulo_cone_rad = np.abs(angulo_d_rad - angulo_e_rad)
             angulo_cone_graus = np.degrees(angulo_cone_rad)
             
-            # Angulo da reta direita em relacao a vertical
-            angulo_direita_graus = np.degrees(np.arctan(abs(1 / a_d))) if abs(a_d) > 1e-6 else 90.0
-            
-            # Angulo da reta esquerda em relacao a vertical
-            angulo_esquerda_graus = np.degrees(np.arctan(abs(1 / a_e))) if abs(a_e) > 1e-6 else 90.0
-            
-            desvio_graus = (angulo_direita_graus - angulo_esquerda_graus) / 2
-            
+            angulo_central_rad = (angulo_e_rad + angulo_d_rad) / 2
+            desvio_graus = np.degrees(angulo_central_rad)
+                    
             return angulo_cone_graus, desvio_graus
         
         except Exception as e:
             print(f"Erro ao calcular angulo e desvio: {str(e)}")
-            return self._herdar_valores(frame_num, injecao_num, captura_num, (0.0, 0.0))
-
-    def _remover_outliers(self, x, y):
-        """Remove outliers usando o metodo IQR"""
-        if len(x) < 5:
-            return x, y
-        
-        # Calcular residuos de uma regressao linear inicial
-        coeff = np.polyfit(x, y, 1)
-        y_pred = np.polyval(coeff, x)
-        residuos = y - y_pred
-        
-        # Calcular quartis e IQR
-        q1 = np.percentile(residuos, 25)
-        q3 = np.percentile(residuos, 75)
-        iqr = q3 - q1
-        
-        # Definir limites para outliers
-        limite_inferior = q1 - 1.5 * iqr
-        limite_superior = q3 + 1.5 * iqr
-        
-        # Filtrar pontos dentro dos limites
-        mascara = (residuos >= limite_inferior) & (residuos <= limite_superior)
-        return x[mascara], y[mascara]
-
-    def _herdar_valores(self, frame_num, injecao_num, captura_num, default):
-        """Versão simplificada que faz frames 1-3 herdarem do frame 4"""
-        if frame_num is None or injecao_num is None or captura_num is None:
-            return default
-        
-        # Se for frame 1, 2 ou 3, tenta pegar o valor do frame 4
-        if frame_num in [1, 2, 3]:
-            try:
-                if (captura_num in self.angulos_cone and 
-                    injecao_num in self.angulos_cone[captura_num] and 
-                    4 in self.angulos_cone[captura_num][injecao_num]):
-                    
-                    angulo = self.angulos_cone[captura_num][injecao_num][4]
-                    desvio = self.desvios[captura_num][injecao_num][4]
-                    
-                    if angulo is not None and desvio is not None:
-                        print(f"Herança simplificada: usando frame 4 para frame {frame_num}")
-                        return angulo, desvio
-            except KeyError:
-                pass
-        return default
-        
+            return None, None
 
     def processar_todas_bordas(self, pasta_captura, captura_numero):
         print(f"\nProcessando bordas para captura {captura_numero}...")
         
-        arquivos_pgm = [f for f in os.listdir(pasta_captura) 
-                    if f.startswith(f"captura{captura_numero}_inj") 
-                    and f.endswith(".pgm")]
-        
-        ordem_prioridade = {"frame4": 0, "frame2": 1, "frame3": 2}
-        arquivos_pgm.sort(key=lambda x: ordem_prioridade.get(x.split("_")[-1][:-4], 3))
-
+        arquivos_pgm = sorted([f for f in os.listdir(pasta_captura) 
+                           if f.startswith(f"captura{captura_numero}_inj") 
+                           and f.endswith(".pgm")])
 
         # Inicializa estruturas de dados
         if captura_numero not in self.penetracoes:
@@ -307,7 +265,7 @@ class Spray:
             if injecao not in self.desvios[captura_numero]:
                 self.desvios[captura_numero][injecao] = {}
                 
-            penetracao = self.calcular_penetracao(dados_bordas, frame, injecao, captura_numero)
+            penetracao = self.calcular_penetracao(dados_bordas)
             self.penetracoes[captura_numero][injecao][frame] = penetracao
             
             if dados_bordas:
@@ -319,30 +277,6 @@ class Spray:
                 self.desvios[captura_numero][injecao][frame] = None
             
             cv2.imwrite(caminho, img_com_bordas)
-
-        for arquivo in arquivos_pgm:
-            partes = arquivo.split('_')
-            injecao = int(partes[1][3:])
-            frame = int(partes[2][5:-4])
-            
-            if (self.angulos_cone[captura_numero][injecao][frame] is None or 
-                self.desvios[captura_numero][injecao][frame] is None):
-                
-                angulos_validos = [v for k, v in self.angulos_cone[captura_numero][injecao].items() 
-                                if v is not None and v > 0]
-                
-                desvios_validos = [v for k, v in self.desvios[captura_numero][injecao].items() 
-                                if v is not None]
-                
-                if angulos_validos:
-                    media_angulo = np.mean(angulos_validos)
-                    self.angulos_cone[captura_numero][injecao][frame] = media_angulo
-                    print(f"Substituindo angulo None do frame {frame} pela media {media_angulo:.2f}")
-                
-                if desvios_validos:
-                    media_desvio = np.mean(desvios_validos)
-                    self.desvios[captura_numero][injecao][frame] = media_desvio
-                    print(f"Substituindo desvio None do frame {frame} pela media {media_desvio:.2f}")
 
         for arquivo in arquivos_pgm:
             partes = arquivo.split('_')
