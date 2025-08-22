@@ -14,6 +14,7 @@ class Spray:
         self.penetracoes = {}
         self.angulos_cone = {}
         self.desvios = {}
+        self.borda_adicionada = {}
 
     def criar_imagem_fundo(self, imagens, primeira_imagem_com_spray, num_injecoes, imagens_por_ciclo, num_imagens_subtracao):
         print("Criando imagens de fundo")
@@ -98,7 +99,7 @@ class Spray:
         x_px = contour_points[:,0]
         y_px = contour_points[:,1]
         
-        # Converter para coordenadas em cm
+        # Converter para cm
         x_cm = x_px / self.pxcm
         y_cm = y_px / self.pxcm
         
@@ -139,23 +140,9 @@ class Spray:
         # Criar visualizacao
         img_visualizacao = img.copy()
 
-        # if not self.imagem_ja_processada(img_path):
-        #     img_visualizacao = cv2.drawContours(img_visualizacao, [main_contour], -1, 255, 1)
-
         img_visualizacao = cv2.drawContours(img_visualizacao, [main_contour], -1, 255, 1)
         
         return dados_bordas, img_visualizacao
-
-    def imagem_ja_processada(self, img_path):
-        """
-        Verifica se a imagem ja foi processada procurando por qualquer pixel branco (255).
-        As imagens nunca tem pixels 255.
-        """
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-        if img is None:
-            return False
-        
-        return np.any(img == 255)  # True se encontrar pelo menos 1 pixel branco
     
     def calcular_penetracao(self, dados_bordas):
         """ Calcula a penetracao do spray em cm"""
@@ -172,7 +159,7 @@ class Spray:
 
         return y_final_spray - y_bico_injetor
     
-    def calcular_angulo_desvio(self, dados_bordas, frame_num=None, injecao_num=None, captura_num=None):
+    def calcular_angulo_desvio(self, dados_bordas, frame_num=None):
         """
         Calcula o angulo de cone e desvio usando uma altura fixa
         """
@@ -269,14 +256,22 @@ class Spray:
             self.penetracoes[captura_numero][injecao][frame] = penetracao
             
             if dados_bordas:
-                angulo_cone, desvio = self.calcular_angulo_desvio(dados_bordas, frame, injecao, captura_numero)
+                angulo_cone, desvio = self.calcular_angulo_desvio(dados_bordas, frame)
                 self.angulos_cone[captura_numero][injecao][frame] = angulo_cone
                 self.desvios[captura_numero][injecao][frame] = desvio
             else:
                 self.angulos_cone[captura_numero][injecao][frame] = None
                 self.desvios[captura_numero][injecao][frame] = None
             
-            cv2.imwrite(caminho, img_com_bordas)
+            img = cv2.imread(caminho, cv2.IMREAD_GRAYSCALE)
+            num_borda = np.sum(img == 255)
+
+            if num_borda > 200:
+                print(f"Borda já adicionada em {arquivo}, pulando.")
+            else:
+                dados_bordas, img_com_bordas = self.detectar_bordas(caminho)
+                cv2.imwrite(caminho, img_com_bordas)
+                print(f"Borda adicionada em {arquivo}")
 
         for arquivo in arquivos_pgm:
             partes = arquivo.split('_')
