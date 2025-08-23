@@ -8,7 +8,7 @@
   "frames_por_injecao": 38,
   "fps": 6400,
   "pxcm": 31.8,
-  "corte": 5,
+  "corte": 14,
   "imagens_por_ciclo": {
     "1": 384,
     "2": 192,
