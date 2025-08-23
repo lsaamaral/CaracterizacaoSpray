@@ -9,6 +9,7 @@
   "fps": 6400,
   "pxcm": 31.8,
   "corte": 14,
+  "salvar_visualizacoes": false,
   "imagens_por_ciclo": {
     "1": 384,
     "2": 192,

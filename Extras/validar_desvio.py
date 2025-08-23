@@ -5,7 +5,7 @@ import math
 def criar_spray_sintetico(largura, altura, desvio_graus, angulo_cone_graus, nome_arquivo):
     # bico do injetor
     bico_x = largura // 2
-    bico_y = 50  # começa no px50
+    bico_y = 50  # comeca no px50
 
     # imagem preta
     imagem = np.zeros((altura, largura), dtype=np.uint8)
@@ -18,7 +18,7 @@ def criar_spray_sintetico(largura, altura, desvio_graus, angulo_cone_graus, nome
     angulo_borda_esquerda_rad = desvio_rad - metade_cone_rad
     angulo_borda_direita_rad = desvio_rad + metade_cone_rad
 
-    # inclinação das bordas
+    # inclinacao das bordas
     m_esquerda = math.tan(angulo_borda_esquerda_rad)
     m_direita = math.tan(angulo_borda_direita_rad)
 
@@ -29,7 +29,7 @@ def criar_spray_sintetico(largura, altura, desvio_graus, angulo_cone_graus, nome
     x_base_esquerda = bico_x + delta_y * m_esquerda
     x_base_direita = bico_x + delta_y * m_direita
 
-    # As extremidades do spray na base da imagem
+    # extremidades do spray na base da imagem
     p2 = (int(x_base_esquerda), y_base)
     p3 = (int(x_base_direita), y_base)
     

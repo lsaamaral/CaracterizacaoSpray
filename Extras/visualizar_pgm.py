@@ -1,4 +1,4 @@
-# tambem eh possivel visualizar os pgm de um jeito mais facil com a extensao PBM/PPM/PGM Viewer do VSCode
+# tambem e possivel visualizar os pgm de um jeito mais facil com a extensao PBM/PPM/PGM Viewer do VSCode
 # import cv2
 # cv2.imshow("Imagem", cv2.imread("./20250423/captura2/captura2_inj13_frame1.pgm", cv2.IMREAD_GRAYSCALE))
 # cv2.waitKey(0)
