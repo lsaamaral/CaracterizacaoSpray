@@ -2,62 +2,57 @@ import os
 import pandas as pd
 
 class Exportacao:
-    def __init__(self, fps, diretorio_saida):
-        self.fps = fps
-        self.diretorio_saida = diretorio_saida
-        self.dados_agregados = {
-            "penetracoes": {},
-            "angulos_cone": {},
-            "desvios": {}
-        }
-        os.makedirs(self.diretorio_saida, exist_ok=True)
+    @staticmethod
+    def exportar_resultados(penetracoes, angulos_cone, desvios, fps, saida_dir="."):
+        os.makedirs(saida_dir, exist_ok=True)
 
-    def adicionar_resultados_captura(self, num_captura, penetracoes, angulos_cone, desvios):
-        """Adiciona resultados de uma captura inteira"""
-        self.dados_agregados["penetracoes"][num_captura] = penetracoes
-        self.dados_agregados["angulos_cone"][num_captura] = angulos_cone
-        self.dados_agregados["desvios"][num_captura] = desvios
+        escritor_pen = pd.ExcelWriter(os.path.join(saida_dir, "Penetracao.xlsx"), engine='openpyxl')
+        escritor_ang = pd.ExcelWriter(os.path.join(saida_dir, "AnguloCone.xlsx"), engine='openpyxl')
+        escritor_desv = pd.ExcelWriter(os.path.join(saida_dir, "Desvio.xlsx"), engine='openpyxl')
 
-    def exportar_para_excel(self):
-        """Cria Excel com todos os resultados"""
-        print("\nExportando resultados para Excel")
-        self._exportar_arquivo("Penetracao.xlsx", self.dados_agregados["penetracoes"], False)
-        self._exportar_arquivo("AnguloCone.xlsx", self.dados_agregados["angulos_cone"], True)
-        self._exportar_arquivo("Desvio.xlsx", self.dados_agregados["desvios"], True)
-        print("Arquivos Excel criados")
-
-    def _exportar_arquivo(self, nome_arquivo, dados_dict, ignorar_primeiros_frames):
-        caminho_completo = os.path.join(self.diretorio_saida, nome_arquivo)
-        with pd.ExcelWriter(caminho_completo, engine='openpyxl') as escritor:
-            for captura, dados_captura in sorted(dados_dict.items()):
-                df = self._criar_dataframe(dados_captura, ignorar_primeiros_frames)
-                df.to_excel(escritor, sheet_name=f"captura{captura}", index=False)
-    
-    def _criar_dataframe(self, dados_captura, ignorar_primeiros_frames):
-        """Cria um DataFrame a partir do dicionario de dados da captura"""
-        if not dados_captura:
-            return pd.DataFrame()
-        
-        frames_disponiveis = set()
-        max_injecao = 0
-        for inj, dados_inj in dados_captura.items():
-            frames_disponiveis.update(dados_inj.keys())
-            if inj > max_injecao:
-                max_injecao = inj
-        
-        frames_ordenados = sorted(list(frames_disponiveis))
-        if ignorar_primeiros_frames:
-            frames_ordenados = [f for f in frames_ordenados if f >= 4]
-
-        colunas = ["Frame", "Tempo (s)"] + [f"Inj{i}" for i in range(1, max_injecao + 1)]
-        dados_tabela = []
-
-        for frame in frames_ordenados:
-            tempo = frame / self.fps
-            linha = [frame, tempo]
-            for inj in range(1, max_injecao + 1):
-                valor = dados_captura.get(inj, {}).get(frame, "")
-                linha.append(valor if valor is not None else "")
-            dados_tabela.append(linha)
+        for captura in sorted(penetracoes.keys()):
+            frames_disponiveis = set()
+            for inj in penetracoes[captura]:
+                frames_disponiveis.update(penetracoes[captura][inj].keys())
             
-        return pd.DataFrame(dados_tabela, columns=colunas)
+            frames_ordenados = sorted(frames_disponiveis)
+            frames_penetracao = frames_ordenados
+            frames_ang_desv = [f for f in frames_ordenados if f >= 4]
+
+            dados_pen = []
+            for frame in frames_penetracao:
+                tempo = frame / fps
+                linha_pen = [frame, tempo]
+                for inj in range(1, max(penetracoes[captura].keys()) + 1):
+                    p = penetracoes[captura].get(inj, {}).get(frame, None)
+                    linha_pen.append(p if p is not None else "")
+                dados_pen.append(linha_pen)
+
+            dados_ang = []
+            dados_desv = []
+            for frame in frames_ang_desv:
+                tempo = frame / fps
+                linha_ang = [frame, tempo]
+                linha_desv = [frame, tempo]
+                for inj in range(1, max(penetracoes[captura].keys()) + 1):
+                    a = angulos_cone[captura].get(inj, {}).get(frame, None)
+                    d = desvios[captura].get(inj, {}).get(frame, None)
+                    linha_ang.append(a if a is not None else "")
+                    linha_desv.append(d if d is not None else "")
+                dados_ang.append(linha_ang)
+                dados_desv.append(linha_desv)
+
+            colunas = ["Frame", "Tempo (s)"] + [f"Inj{inj}" for inj in range(1, max(penetracoes[captura].keys()) + 1)]
+            
+            df_pen = pd.DataFrame(dados_pen, columns=colunas)
+            df_ang = pd.DataFrame(dados_ang, columns=colunas)
+            df_desv = pd.DataFrame(dados_desv, columns=colunas)
+
+            nome_aba = f"captura{captura}"
+            df_pen.to_excel(escritor_pen, sheet_name=nome_aba, index=False)
+            df_ang.to_excel(escritor_ang, sheet_name=nome_aba, index=False)
+            df_desv.to_excel(escritor_desv, sheet_name=nome_aba, index=False)
+
+        escritor_pen.close()
+        escritor_ang.close()
+        escritor_desv.close()

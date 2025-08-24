@@ -1,17 +1,55 @@
-import numpy as np
-import cv2
-from sklearn.linear_model import RANSACRegressor
 import os
-from Entidades.visualizacao import Visualizacao
+import numpy as np
+from sklearn.linear_model import RANSACRegressor
+import cv2
+import pandas as pd
+import tifffile
+import json
+import matplotlib.pyplot as plt
 
-class AnaliseSpray:
-    def __init__(self, pxcm, corte, salvar_visualizacoes):
-        self.pxcm = pxcm
-        self.corte = corte
-        self.salvar_visualizacoes = salvar_visualizacoes
+class Spray:
+    def __init__(self, pxcm, corte):
+        self.pxcm = pxcm  # pixel/centimetro
+        self.corte = corte  # valor de corte para deteccao de bordas
+        # dicionarios que armazenam todas as penetracoes, angulos de cone e desvios respectivamente
         self.penetracoes = {}
         self.angulos_cone = {}
         self.desvios = {}
+        self.borda_adicionada = {}
+
+    def criar_imagem_fundo(self, imagens, primeira_imagem_com_spray, num_injecoes, imagens_por_ciclo, num_imagens_subtracao):
+        print("Criando imagens de fundo")
+        altura, largura = imagens.shape[1], imagens.shape[2]
+        sem_spray = np.zeros((altura, largura, num_injecoes), dtype=np.float32)
+
+        for j in range(num_injecoes):
+            inicio = primeira_imagem_com_spray + imagens_por_ciclo * j - num_imagens_subtracao
+            fim = primeira_imagem_com_spray + imagens_por_ciclo * j - 1
+
+            soma = np.sum(imagens[inicio:fim].astype(np.float32), axis=0)
+            sem_spray[:, :, j] = soma / num_imagens_subtracao
+
+        return sem_spray.astype(np.uint8)
+
+    def subtrair_fundo(self, imagens, sem_spray, inicio, num_injecoes, imagens_por_ciclo, frames_por_injecao, pasta_saida, captura_numero):
+
+        for j in range(num_injecoes):
+            frame_inicial = inicio + imagens_por_ciclo * j
+
+            for i in range(frames_por_injecao):
+                img_com_spray = imagens[frame_inicial + i]  # Selecionar frame atual
+                img_subtraida = cv2.subtract(sem_spray[:, :, j], img_com_spray)  # Subtrair a imagem de fundo
+                img_ajustada = cv2.normalize(img_subtraida, None, 0, 300, cv2.NORM_MINMAX)  # Normalizar contraste para 0-255
+                img_filtrada = cv2.medianBlur(img_ajustada, 3)  # Suavizar ruido sem perder a borda (mediana 3x3)
+
+                nome_arquivo = f"captura{captura_numero}_inj{j+1}_frame{i+1}.pgm"
+                caminho_arquivo = os.path.join(pasta_saida, nome_arquivo)
+
+                if not os.path.exists(caminho_arquivo):
+                    cv2.imwrite(caminho_arquivo, img_filtrada)
+                    print(f"  Criado: {caminho_arquivo}")
+                else:
+                    print(f"  Ja existe, pulando: {caminho_arquivo}")
 
     def detectar_bordas(self, img_path):
         """
@@ -121,7 +159,37 @@ class AnaliseSpray:
         y_final_spray = max(todos_y)
 
         return y_final_spray - y_bico_injetor
+    
+    def salvar_visualizacao_retas(self, img_original, img_tratada, m_e, m_d, caminho_saida, nome_base, x_bico, y_bico):
+        """
+        Salva duas imagens:
+        - Uma com a imagem original + retas da regressao linear das bordas
+        - Outra com a imagem tratada + retas da regressao linear das bordas
+        """
+        altura, largura = img_original.shape
+        
+        y_vals = np.array([y_bico, altura-1])
+        x_e = m_e * (y_vals - y_bico) + x_bico
+        x_d = m_d * (y_vals - y_bico) + x_bico
 
+        # Imagem original
+        plt.figure(figsize=(8, 8))
+        plt.imshow(img_original, cmap='gray')
+        plt.plot(x_e, y_vals, color='green', linewidth=2)
+        plt.plot(x_d, y_vals, color='green', linewidth=2)
+        plt.axis('off')
+        plt.savefig(os.path.join(caminho_saida, f"{nome_base}_original_retas.png"), bbox_inches='tight')
+        plt.close()
+
+        # Imagem tratada
+        plt.figure(figsize=(8, 8))
+        plt.imshow(img_tratada, cmap='gray')
+        plt.plot(x_e, y_vals, color='green', linewidth=2)
+        plt.plot(x_d, y_vals, color='green', linewidth=2)
+        plt.axis('off')
+        plt.savefig(os.path.join(caminho_saida, f"{nome_base}_tratada_retas.png"), bbox_inches='tight')
+        plt.close()
+    
     def calcular_angulo_desvio(self, dados_bordas, frame_num=None):
         """
         Calcula o angulo de cone e desvio usando uma altura fixa
@@ -186,10 +254,9 @@ class AnaliseSpray:
         print(f"\nProcessando bordas para captura {captura_numero}...")
         
         arquivos_pgm = sorted([f for f in os.listdir(pasta_captura) 
-                           if f.startswith(f"captura{captura_numero}_inj")
+                           if f.startswith(f"captura{captura_numero}_inj") 
                            and f.endswith(".pgm")])
 
-        # Inicializa estruturas de dados
         if captura_numero not in self.penetracoes:
             self.penetracoes[captura_numero] = {}
         if captura_numero not in self.angulos_cone:
@@ -197,7 +264,6 @@ class AnaliseSpray:
         if captura_numero not in self.desvios:
             self.desvios[captura_numero] = {}
         
-        # Primeiro processa todos os frames para coletar dados
         for arquivo in arquivos_pgm:
             caminho = os.path.join(pasta_captura, arquivo)
             partes = arquivo.split('_')
@@ -207,7 +273,6 @@ class AnaliseSpray:
             print(f"Processando bordas em: {arquivo}")
             dados_bordas, img_com_bordas = self.detectar_bordas(caminho)
             
-            # Inicializa estruturas para esta injecao
             if injecao not in self.penetracoes[captura_numero]:
                 self.penetracoes[captura_numero][injecao] = {}
             if injecao not in self.angulos_cone[captura_numero]:
@@ -253,17 +318,16 @@ class AnaliseSpray:
                     caminho_saida = os.path.join(pasta_captura, "visualizacoes")
                     os.makedirs(caminho_saida, exist_ok=True)
 
-                    if self.salvar_visualizacoes and m_e is not None and m_d is not None:
-                        Visualizacao.salvar_visualizacao_retas(
-                            img_original,
-                            img_tratada,
-                            m_e,
-                            m_d,
-                            caminho_saida,
-                            nome_base,
-                            x_bico_px,
-                            y_bico_px
-                        )
+                    self.salvar_visualizacao_retas(
+                        img_original,
+                        img_tratada,
+                        m_e,
+                        m_d,
+                        caminho_saida,
+                        nome_base,
+                        x_bico_px,
+                        y_bico_px
+                    )
             else:
                 self.angulos_cone[captura_numero][injecao][frame] = None
                 self.desvios[captura_numero][injecao][frame] = None
@@ -295,3 +359,125 @@ class AnaliseSpray:
             desvio = self.desvios[captura_numero][injecao][frame]
             
             print(f"  {arquivo}: Penetracao: {penetracao:.3f} cm | Angulo: {angulo if angulo is not None else 'N/A'} | Desvio: {desvio if desvio is not None else 'N/A'}")
+
+    def exportar_resultados(self, fps, saida_dir="."):
+        """
+        Cria os arquivos Excel com os resultados de penetracao, angulo de cone e desvio.
+        """
+        os.makedirs(saida_dir, exist_ok=True)
+
+        escritor_pen = pd.ExcelWriter(os.path.join(saida_dir, "Penetracao.xlsx"), engine='openpyxl')
+        escritor_ang = pd.ExcelWriter(os.path.join(saida_dir, "AnguloCone.xlsx"), engine='openpyxl')
+        escritor_desv = pd.ExcelWriter(os.path.join(saida_dir, "Desvio.xlsx"), engine='openpyxl')
+
+        for captura in sorted(self.penetracoes.keys()):
+            frames_disponiveis = set()
+            for inj in self.penetracoes[captura]:
+                frames_disponiveis.update(self.penetracoes[captura][inj].keys())
+            
+            frames_ordenados = sorted(frames_disponiveis)
+            frames_penetracao = frames_ordenados
+            frames_ang_desv = [f for f in frames_ordenados if f >= 4]
+
+            dados_pen = []
+            for frame in frames_penetracao:
+                tempo = frame / fps
+                linha_pen = [frame, tempo]
+                for inj in range(1, max(self.penetracoes[captura].keys()) + 1):
+                    p = self.penetracoes[captura].get(inj, {}).get(frame, None)
+                    linha_pen.append(p if p is not None else "")
+                dados_pen.append(linha_pen)
+
+            dados_ang = []
+            dados_desv = []
+            for frame in frames_ang_desv:
+                tempo = frame / fps
+                linha_ang = [frame, tempo]
+                linha_desv = [frame, tempo]
+                for inj in range(1, max(self.penetracoes[captura].keys()) + 1):
+                    a = self.angulos_cone[captura].get(inj, {}).get(frame, None)
+                    d = self.desvios[captura].get(inj, {}).get(frame, None)
+                    linha_ang.append(a if a is not None else "")
+                    linha_desv.append(d if d is not None else "")
+                dados_ang.append(linha_ang)
+                dados_desv.append(linha_desv)
+
+            colunas = ["Frame", "Tempo (s)"] + [f"Inj{inj}" for inj in range(1, max(self.penetracoes[captura].keys()) + 1)]
+            
+            df_pen = pd.DataFrame(dados_pen, columns=colunas)
+            df_ang = pd.DataFrame(dados_ang, columns=colunas)
+            df_desv = pd.DataFrame(dados_desv, columns=colunas)
+
+            nome_aba = f"captura{captura}"
+            df_pen.to_excel(escritor_pen, sheet_name=nome_aba, index=False)
+            df_ang.to_excel(escritor_ang, sheet_name=nome_aba, index=False)
+            df_desv.to_excel(escritor_desv, sheet_name=nome_aba, index=False)
+
+        escritor_pen.close()
+        escritor_ang.close()
+        escritor_desv.close()
+
+
+def carregar_config(caminho_config):
+        with open(caminho_config, 'r') as f:
+            return json.load(f)
+
+def main():
+        
+    config = carregar_config("config.json")
+
+    nome_pasta = config["nome_pasta"]
+    num_capturas = config["num_capturas"]
+    primeira_imagem_com_spray = config["primeira_imagem_com_spray"]
+    inicio = config["inicio"]
+    num_imagens_subtracao = config["num_imagens_subtracao"]
+    num_injecoes = config["num_injecoes"]
+    frames_por_injecao = config["frames_por_injecao"]
+    fps = config["fps"]
+
+    spray = Spray(pxcm=config["pxcm"], corte=config["corte"])
+
+    for captura_numero in range(1, num_capturas + 1):
+        try:
+            imagens_por_ciclo = config["imagens_por_ciclo"][str(captura_numero)]
+        except KeyError:
+            print(f"\nNumero de imagens por ciclo nao configurado para captura {captura_numero}")
+            continue
+
+        pasta_captura = os.path.join(nome_pasta, f"captura{captura_numero}")
+        arquivo_tif = os.path.join(pasta_captura, f"captura{captura_numero}.tif")
+
+        if not os.path.exists(arquivo_tif):
+            print(f"\nArquivo {arquivo_tif} nao encontrado, pulando captura {captura_numero}")
+            continue
+
+        print(f"\nProcessando {arquivo_tif}...")
+
+        with tifffile.TiffFile(arquivo_tif) as tif:
+            imagens = tif.asarray()  # (imagens.shape) = (n_frames, altura, largura)
+
+        sem_spray = spray.criar_imagem_fundo(
+            imagens,
+            primeira_imagem_com_spray,
+            num_injecoes,
+            imagens_por_ciclo,
+            num_imagens_subtracao
+        )
+
+        spray.subtrair_fundo(
+            imagens,
+            sem_spray,
+            inicio,
+            num_injecoes,
+            imagens_por_ciclo,
+            frames_por_injecao,
+            pasta_captura,
+            captura_numero
+        )
+
+        spray.processar_todas_bordas(pasta_captura, captura_numero, imagens, inicio, imagens_por_ciclo)
+
+        spray.exportar_resultados(fps=config["fps"], saida_dir=os.path.join("resultados_excel", f"dados_{nome_pasta}"))
+
+
+main()
