@@ -5,3 +5,6 @@
 __pycache__/
 
 /15/
+
+*.png
+*.tif

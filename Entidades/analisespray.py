@@ -161,14 +161,14 @@ class AnaliseSpray:
             
             ransac_e = RANSACRegressor()
             ransac_e.fit(y_esquerda.reshape(-1, 1), x_esquerda)
-            m_e = ransac_e.estimator_.coef_[0]
+            coef_ang_esquerda = ransac_e.estimator_.coef_[0]
 
             ransac_d = RANSACRegressor()
             ransac_d.fit(y_direita.reshape(-1, 1), x_direita)
-            m_d = ransac_d.estimator_.coef_[0]
+            coef_ang_direita = ransac_d.estimator_.coef_[0]
 
-            angulo_e_rad = np.arctan(m_e)
-            angulo_d_rad = np.arctan(m_d)
+            angulo_e_rad = np.arctan(coef_ang_esquerda)
+            angulo_d_rad = np.arctan(coef_ang_direita)
             
             angulo_cone_rad = np.abs(angulo_d_rad - angulo_e_rad)
             angulo_cone_graus = np.degrees(angulo_cone_rad)
@@ -176,7 +176,7 @@ class AnaliseSpray:
             angulo_central_rad = (angulo_e_rad + angulo_d_rad) / 2
             desvio_graus = np.degrees(angulo_central_rad)
                     
-            return angulo_cone_graus, desvio_graus, m_e, m_d
+            return angulo_cone_graus, desvio_graus, coef_ang_esquerda, coef_ang_direita
         
         except Exception as e:
             print(f"Erro ao calcular angulo e desvio: {str(e)}")
@@ -185,9 +185,18 @@ class AnaliseSpray:
     def processar_todas_bordas(self, pasta_captura, captura_numero, imagens, inicio, imagens_por_ciclo):
         print(f"\nProcessando bordas para captura {captura_numero}...")
         
-        arquivos_pgm = sorted([f for f in os.listdir(pasta_captura) 
-                           if f.startswith(f"captura{captura_numero}_inj")
-                           and f.endswith(".pgm")])
+        arquivos_filtrados = []
+        todos_os_arquivos = os.listdir(pasta_captura)
+
+        for nome_do_arquivo in todos_os_arquivos:
+            
+            se_captura_certa = nome_do_arquivo.startswith(f"captura{captura_numero}_inj")
+            se_arquivo_pgm = nome_do_arquivo.endswith(".pgm")
+            
+            if se_captura_certa and se_arquivo_pgm:
+                arquivos_filtrados.append(nome_do_arquivo)
+
+        arquivos_pgm = sorted(arquivos_filtrados)
 
         # Inicializa estruturas de dados
         if captura_numero not in self.penetracoes:
@@ -219,18 +228,19 @@ class AnaliseSpray:
             self.penetracoes[captura_numero][injecao][frame] = penetracao
             
             if dados_bordas:
-                angulo_cone, desvio, m_e, m_d = self.calcular_angulo_desvio(dados_bordas, frame)
+                angulo_cone, desvio, coef_ang_esquerda, coef_ang_direita = self.calcular_angulo_desvio(dados_bordas, frame)
                 self.angulos_cone[captura_numero][injecao][frame] = angulo_cone
                 self.desvios[captura_numero][injecao][frame] = desvio
 
-                if m_e is not None and m_d is not None:
+                if coef_ang_esquerda is not None and coef_ang_direita is not None:
 
                     if dados_bordas['dy_e'] and dados_bordas['dy_d']:
                         # Coordenadas do bico em cm
                         y_bico_cm = min(min(dados_bordas['dy_e']), min(dados_bordas['dy_d']))
-                        idx_e = np.argmin(dados_bordas['dy_e'])
-                        idx_d = np.argmin(dados_bordas['dy_d'])
-                        x_bico_cm = np.mean([dados_bordas['dx_e'][idx_e], dados_bordas['dx_d'][idx_d]])
+                        # indices dos pontos mais baixos em cada borda (que estao mais proximos do bico)
+                        menor_ponto_esquerda = np.argmin(dados_bordas['dy_e'])
+                        menor_ponto_direita = np.argmin(dados_bordas['dy_d'])
+                        x_bico_cm = np.mean([dados_bordas['dx_e'][menor_ponto_esquerda], dados_bordas['dx_d'][menor_ponto_direita]])
                         
                         # Converter coordenadas do bico para pixels para a visualizacao
                         x_bico_px = x_bico_cm * self.pxcm
@@ -253,12 +263,12 @@ class AnaliseSpray:
                     caminho_saida = os.path.join(pasta_captura, "visualizacoes")
                     os.makedirs(caminho_saida, exist_ok=True)
 
-                    if self.salvar_visualizacoes and m_e is not None and m_d is not None:
+                    if self.salvar_visualizacoes and coef_ang_esquerda is not None and coef_ang_direita is not None:
                         Visualizacao.salvar_visualizacao_retas(
                             img_original,
                             img_tratada,
-                            m_e,
-                            m_d,
+                            coef_ang_esquerda,
+                            coef_ang_direita,
                             caminho_saida,
                             nome_base,
                             x_bico_px,
@@ -273,6 +283,7 @@ class AnaliseSpray:
 
             frame_num = int(arquivo.split('_frame')[1].split('.pgm')[0])
 
+            # tentativa de nao adicionar borda se ja tiver
             if frame_num in [1, 2]:
                 limiar = 50
             else:

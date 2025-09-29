@@ -7,15 +7,15 @@ class Preprocessamento:
         self.pxcm = pxcm
         self.corte = corte
 
-    def criar_imagem_fundo(self, imagens, primeira_imagem_com_spray, num_injecoes, imagens_por_ciclo, num_imagens_subtracao):
+    def criar_imagem_fundo(self, imagens, primeira_imagem_com_spray, num_injecoes, imagens_por_ciclo, num_imagens_criarfundo):
         altura, largura = imagens.shape[1], imagens.shape[2]
         sem_spray = np.zeros((altura, largura, num_injecoes), dtype=np.float32)
 
         for j in range(num_injecoes):
-            inicio = primeira_imagem_com_spray + imagens_por_ciclo * j - num_imagens_subtracao
+            inicio = primeira_imagem_com_spray + imagens_por_ciclo * j - num_imagens_criarfundo
             fim = primeira_imagem_com_spray + imagens_por_ciclo * j - 1
             soma = np.sum(imagens[inicio:fim].astype(np.float32), axis=0)
-            sem_spray[:, :, j] = soma / num_imagens_subtracao
+            sem_spray[:, :, j] = soma / num_imagens_criarfundo
 
         return sem_spray.astype(np.uint8)
 

@@ -3,7 +3,7 @@
   "num_capturas": 6,
   "primeira_imagem_com_spray": 201,
   "inicio": 200,
-  "num_imagens_subtracao": 50,
+  "num_imagens_criarfundo": 50, 
   "num_injecoes": 10,
   "frames_por_injecao": 38,
   "fps": 6400,

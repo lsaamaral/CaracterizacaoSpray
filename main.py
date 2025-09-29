@@ -28,7 +28,7 @@ def main():
 
         sem_spray = preproc.criar_imagem_fundo(imagens, config["primeira_imagem_com_spray"],
                                                config["num_injecoes"], config["imagens_por_ciclo"][str(captura_numero)],
-                                               config["num_imagens_subtracao"])
+                                               config["num_imagens_criarfundo"])
 
         preproc.subtrair_fundo(imagens, sem_spray, config["inicio"], config["num_injecoes"],
                                config["imagens_por_ciclo"][str(captura_numero)], config["frames_por_injecao"],
